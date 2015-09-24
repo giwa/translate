@@ -18,28 +18,36 @@ Spark 1.2.0より前は、hashがデフォルトでした。しかし、hashは�
 
 このShuffleの仕組みは賢いものではありません。reduce側でreducerの数をパーティションの数として数え、それらに対して別々のファイルを作成しアウトプットが必要なレコードをループします。target partiitionをそれぞれのreducerのために数え、対応したファイルに結果を書き出します。
 
-Here is how it looks like:
-
 TODO: insert an image of spark_hash_shuffle_no_consolidation
 
 There is an optimization implemented for this shuffler, controlled by the parameter “spark.shuffle.consolidateFiles” (default is “false”). When it is set to “true”, the “mapper” output files would be consolidated. If your cluster has E executors (“–num-executors” for YARN) and each of them has C cores (“spark.executor.cores” or “–executor-cores” for YARN) and each task asks for T CPUs (“spark.task.cpus“), then the amount of execution slots on the cluster would be E * C / T, and the amount of files created during shuffle would be E * C / T * R. With 100 executors 10 cores each allocating 1 core for each task and 46000 “reducers” it would allow you to go from 2 billion files down to 46 million files, which is much better in terms of performance. This feature is implemented in a rather straightforward way: instead of creating new file for each of the reducers, it creates a pool of output files. When map task starts outputting the data, it requests a group of R files from this pool. When it is finished, it returns this R files group back to the pool. As each executor can execute only C / T tasks in parallel, it would create only C / T groups of output files, each group is of R files. After the first C / T parallel “map” tasks has finished, each next “map” task would reuse an existing group from this pool.
+
+TODO: re-translate
+このshuffleには最適化した実装があります。それは、"spark.shuffle.consolidateFiles"というパラメータで管理することができます。(デフォルトでは"false")　それが"true"になった時、"mapper"の出力ファイルは統合されます。もしクラスターがE個のエグゼキューター(YARNでは"-num-executors") とそれらが持つC個のコア("spark.executor.cores" か YARNでは"-executor-cores")と、それぞれのタスクのためのT個CPU("spark.task.cpus") とするとクラスターの実行されるスロットの数はE * C / Tになります。そしてShuffleの間に作られるファイルはE * C / T * Rとなります。10個のコアと100個のエグゼキューターで、それぞれが1コアあたりそれぞれのタスクに割り当てると46000の"reducers"では20億のファイルから4600万のファイルまで減らすことができます。これはパフォーマンス的にはかなりよい結果となります。この機能は新しくファイルをreducerのために作るのではなく、作られたファイルをプールすることによって実装されています。この処理が終わると、R個のファイルグループをプールに返します。それぞれのエグゼキューターではC / T個のタスクが並列で実行されます。それらは各グループにはR個のファイルがあるC / T個のグループのを作ります。 最初のC / Tの"map"処理が終わったあと次の"map"タスクが行われ、すでにあるグループのファイルを再利用します。
+
 
 Here’s a general diagram of how it works:
 
 spark_hash_shuffle_with_consolidation
 
-Pros:
-
-Fast – no sorting is required at all, no hash table maintained;
+長所:
 No memory overhead for sorting the data;
 No IO overhead – data is written to HDD exactly once and read exactly once.
-Cons:
+高速: ソートは必要ない。ハッシュテーブルを維持する必要が無い
+ソートするためのメモリオーバーヘッドがない。
+IOのオーバーヘッドがない。データはHDDに1回だけしかwriteとreadが行われるだけである。
 
-When the amount of partitions is big, performance starts to degrade due to big amount of output files
-Big amount of files written to the filesystem causes IO skew towards random IO, which is in general up to 100x slower than sequential IO
-Just for the reference, IO operation slowness at the scale of millions of files on a single filesystem.
+
+短所:
+パーティションの数が大きくなると、膨大な出力ファイルのせいでパフォーマンスが低下していく。
+多くのファイルがファイル・システムに書かれると、IO skewが発生しランダムIOが起こる。ランダムIOは一般的にはシーケンシャルIOの100倍遅いと言われている。参考としてこちらのリンクを挙げます。 IO operation slowness at the scale of millions of files on a single filesystem.
+
+TODO: link to IO operation
 
 And of course, when data is written to files it is serialized and optionally compressed. When it is read, the process is opposite – it is uncompressed and deserialized. Important parameter on the fetch side is “spark.reducer.maxSizeInFlight“ (48MB by default), which determines the amount of data requested from the remote executors by each reducer. This size is split equally by 5 parallel requests from different executors to speed up the process. If you would increase this size, your reducers would request the data from “map” task outputs in bigger chunks, which would improve performance, but also increase memory usage by “reducer” processes.
+
+そしてもちろん、
+
 
 If the record order on the reduce side is not enforced, then the “reducer” will just return an iterator with dependency on the “map” outputs, but if the ordering is required it would fetch all the data and sort it on the “reduce” side with ExternalSorter.
 
