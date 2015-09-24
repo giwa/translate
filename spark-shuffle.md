@@ -10,17 +10,17 @@ TODO: insert images
 
 Shuffleは一般的に2つの重要なパラメータを取ります。`spark.shuffle.compress` shuffleのアウトプットを圧縮するかどうか。`spark.shuffle.spill.compress` Shuffleでメモリからあふれた中間ファイルを圧縮するかどうか。両者ともデフォルトで`true`になっています。`spark.io.compression.codec`を両者とも使っています。データを圧縮するためのcodecはデフォルトではsnappyです。
 
-As you might know, there are a number of shuffle implementations available in Spark. Which implementation would be used in your particular case is determined by the value of spark.shuffle.manager parameter. Three possible options are: hash, sort, tungsten-sort, and the “sort” option is default starting from Spark 1.2.0.
+ご存知かも知れませんが、Sparkには数種類のshuffleの実装がされています。`spark.shuffle.manager`のパラメータによってそれらのshuffleを使うことができます。使えるShuffleの実装はhash, sort, tungsten-sortです。1.2からのデフォルトは"sort"になっています。
 
-Hash Shuffle
+TODO: inset image of Hash Shuffle
 
-Prior to Spark 1.2.0 this was the default option of shuffle (spark.shuffle.manager = hash). But it has many drawbacks, mostly caused by the amount of files it creates – each mapper task creates separate file for each separate reducer, resulting in M * R total files on the cluster, where M is the number of “mappers” and R is the number of “reducers”. With high amount of mappers and reducers this causes big problems, both with the output buffer size, amount of open files on the filesystem, speed of creating and dropping all these files. Here’s a good example of how Yahoo faced all these problems, with 46k mappers and 46k reducers generating 2 billion files on the cluster.
+Spark 1.2.0より前は、hashがデフォルトでした。しかし、hashは多くの欠点がありました。それらは、それぞれのmapperタスクがそれぞれのreducerのために作る分割ファイルの量は、クラスターのなかのM * R だけの数になります。（Mはmapperの数、Rはreducerの数です。）多くのmapperとreducerは大きな問題を生じます。mapperとreducerのbufferサイス、ファイルシステムの中でオープンされているファイルの数、それらのファイルを作成、削除する速さの問題などです。いい例としてはYahooが実際にこの問題に直面した時の例です。彼らは46kのmapperと46kのreducerを使い20億のファイルをクラスターの中で作成しました。
 
-The logic of this shuffler is pretty dumb: it calculates the amount of “reducers” as the amount of partitions on the “reduce” side, creates a separate file for each of them, and looping through the records it needs to output, it calculates target partition for each of them and outputs the record to the corresponding file.
+このShuffleの仕組みは賢いものではありません。reduce側でreducerの数をパーティションの数として数え、それらに対して別々のファイルを作成しアウトプットが必要なレコードをループします。target partiitionをそれぞれのreducerのために数え、対応したファイルに結果を書き出します。
 
 Here is how it looks like:
 
-spark_hash_shuffle_no_consolidation
+TODO: insert an image of spark_hash_shuffle_no_consolidation
 
 There is an optimization implemented for this shuffler, controlled by the parameter “spark.shuffle.consolidateFiles” (default is “false”). When it is set to “true”, the “mapper” output files would be consolidated. If your cluster has E executors (“–num-executors” for YARN) and each of them has C cores (“spark.executor.cores” or “–executor-cores” for YARN) and each task asks for T CPUs (“spark.task.cpus“), then the amount of execution slots on the cluster would be E * C / T, and the amount of files created during shuffle would be E * C / T * R. With 100 executors 10 cores each allocating 1 core for each task and 46000 “reducers” it would allow you to go from 2 billion files down to 46 million files, which is much better in terms of performance. This feature is implemented in a rather straightforward way: instead of creating new file for each of the reducers, it creates a pool of output files. When map task starts outputting the data, it requests a group of R files from this pool. When it is finished, it returns this R files group back to the pool. As each executor can execute only C / T tasks in parallel, it would create only C / T groups of output files, each group is of R files. After the first C / T parallel “map” tasks has finished, each next “map” task would reuse an existing group from this pool.
 
