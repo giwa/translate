@@ -104,11 +104,15 @@ random IOが少なくなりシーケンシャルなreadとwriteを使う。
 
 Unsafe Shuffle or Tungsten Sort
 
+TODO: insert link
 Sparkの1.4.0以上では、spark.suffle.manager = tungsten-sortが有効にされているかもれない。このコードは"Tungsten" プロジェクトからポートされたものである。このアイディアはここで説明されている。それはとても興味深いものです。この最適化されたShuffleの実装の特徴は下記のとおりです。
 
 
 Operate directly on serialized binary data without the need to deserialize it. It uses unsafe (sun.misc.Unsafe) memory copy functions to directly copy the data itself, which works fine for serialized data as in fact it is just a byte array
+データをデシリアライズせずにシリアライズされたバイナリデータをそのまま扱う。これはunsafe(sun.misc.Unsafe) memoruy copy関数を直接データをコピーするために使用している。この関数は、シリアライズされたデータ(実際は単なるbyte array)に対して有効に働く。
+
 Uses special cache-efficient sorter UnsafeShuffleExternalSorter that sorts arrays of compressed record pointers and partition ids. By using only 8 bytes of space per record in the sorting array, it works more efficienly with CPU cache
+パーティション idと圧縮されたarrayのレコードのポインタをソートするキャッシュを有効に使う UnsafeShuffleExternalSorterという特殊なsorterを使っている。たった8byteの領域を1レコードあたりにソートされたアレイでつか言うことにより、CPUキャッシュがより効率良く働く。
 As the records are not deserialized, spilling of the serialized data is performed directly (no deserialize-compare-serialize-spill logic)
     Extra spill-merging optimizations are automatically applied when the shuffle compression codec supports concatenation of serialized streams (i.e. to merge separate spilled outputs just concatenate them). This is currently supported by Spark’s LZF serializer, and only if fast merging is enabled by parameter “shuffle.unsafe.fastMergeEnabled”
     As a next step of optimization, this algorithm would also introduce off-heap storage buffer.
