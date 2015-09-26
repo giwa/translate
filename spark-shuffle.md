@@ -31,16 +31,16 @@ Here’s a general diagram of how it works:
 spark_hash_shuffle_with_consolidation
 
 長所:
-No memory overhead for sorting the data;
-No IO overhead – data is written to HDD exactly once and read exactly once.
-高速: ソートは必要ない。ハッシュテーブルを維持する必要が無い
-ソートするためのメモリオーバーヘッドがない。
-IOのオーバーヘッドがない。データはHDDに1回だけしかwriteとreadが行われるだけである。
+
+- 高速である。ソートは必要ない。ハッシュテーブルを維持する必要が無い
+- ソートするためのメモリオーバーヘッドがない。
+- IOのオーバーヘッドがない。データはHDDに1回だけしかwriteとreadが行われるだけである。
 
 
 短所:
-パーティションの数が大きくなると、膨大な出力ファイルのせいでパフォーマンスが低下していく。
-多くのファイルがファイル・システムに書かれると、IO skewが発生しランダムIOが起こる。ランダムIOは一般的にはシーケンシャルIOの100倍遅いと言われている。参考としてこちらのリンクを挙げます。 IO operation slowness at the scale of millions of files on a single filesystem.
+
+- パーティションの数が大きくなると、膨大な出力ファイルのせいでパフォーマンスが低下していく。
+- 多くのファイルがファイル・システムに書かれると、IO skewが発生しランダムIOが起こる。ランダムIOは一般的にはシーケンシャルIOの100倍遅いと言われている。参考としてこちらのリンクを挙げます。 IO operation slowness at the scale of millions of files on a single filesystem.
 
 TODO: link to IO operation
 
@@ -73,29 +73,39 @@ Spark内部では、AppendOnlyMapの構造を"map"の出力をメモリに保存
 This hash table allows Spark to apply “combiner” logic in place on this table – each new value added for existing key is getting through “combine” logic with existing value, and the output of “combine” is stored as the new value.
 このhash テーブルはSparkに"combiner"のロジックをhashテーブルで実行することを可能にします。既存のキーに対して新しいバリューが追加されると既存のバリューと合わせてcombineのロジックが適用されます。そして"combine"の出力が新しい値として保存されます。
 
-データがメモリからあふれた時、それは、TimSortをこのAppendOnlyMapに保存されたデータに対して実行する"sorter"を呼びデータをディスクに書き込みます。
+データがメモリからあふれた時、Hashテーブルは、TimSortをこのAppendOnlyMapに保存されたデータに対して実行する"sorter"を呼びデータをディスクに書き込みます。
 
 Sorted output is written to the disk when the spilling occurs or when there is no more mapper output, i.e. the data is guaranteed to hit the disk. Whether it will really hit the disk depends on OS settings like file buffer cache, but it is up to OS to decide, Spark just sends it “write” instructions.
 
+データがメモリからあふれた時もしくは、mapperの出力がなくなった時、ソートされた出力はディスクに書き込まれます。たとえば、データがディスクに書き込まれることが保証されている場合です。データが書き込まれるかどうかは、ファイルバッファキャシュのようなOSの設定によります。Sparkは単純にwriteの命令を発行するだけなのでOSによります。
+
+
 Each spill file is written to the disk separately, their merging is performed only when the data is requested by “reducer” and the merging is real-time, i.e. it does not call somewhat “on-disk merger” like it happens in Hadoop MapReduce, it just dynamically collects the data from a number of separate spill files and merges them together using Min Heap implemented by Java PriorityQueue class.
+
+あふれたファイルはディスクに分けてそれぞれ書きだされます。このファイルのマージは"reducer"がデータを要求した時にリアルタイにマージされていきます。たとえば、Hadoop MapReduceで行われている"on-disk merger"を呼ぶわけではなく、分割されたメモリからあふれたファイルを動的にあつめ、Java PriorityQueue classで実装されているMin Heapを使いそれらをマージしていきます。
+
 
 This is how it works:
 
-spark_sort_shuffle
+TODO: insert an image spark_sort_shuffle
 
-So regarding this shuffle:
+Sort Shuffleに関して
 
-Pros:
+長所:
 
-Smaller amount of files created on “map” side
-Smaller amount of random IO operations, mostly sequential writes and reads
-Cons:
+- "map"側では少ない量のファイルが作られる。
+random IOが少なくなりシーケンシャルなreadとwriteを使う。
 
-Sorting is slower than hashing. It might worth tuning the bypassMergeThreshold parameter for your own cluster to find a sweet spot, but in general for most of the clusters it is even too high with its default
-In case you use SSD drives for the temporary data of Spark shuffles, hash shuffle might work better for you
+短所:
+
+- Sortはhashよりも低速である。一般的には、デフォルトの設定で十分であるが、bypassMergeThresholdのパラメータをあなたのクラスタのsweet spotを見つけるのにはチューニングする価値があるかもしれない。
+
+- SSD ドライブをSparkShuffleのテンポラリデータのストレージにつかっているならhash shuffleのほうが良い性能がでるかもしれない。
+
 Unsafe Shuffle or Tungsten Sort
 
-Can be enabled with setting spark.shuffle.manager = tungsten-sort in Spark 1.4.0+. This code is the part of project “Tungsten”. The idea is described here, and it is pretty interesting. The optimizations implemented in this shuffle are:
+Sparkの1.4.0以上では、spark.suffle.manager = tungsten-sortが有効にされているかもれない。このコードは"Tungsten" プロジェクトからポートされたものである。このアイディアはここで説明されている。それはとても興味深いものです。この最適化されたShuffleの実装の特徴は下記のとおりです。
+
 
 Operate directly on serialized binary data without the need to deserialize it. It uses unsafe (sun.misc.Unsafe) memory copy functions to directly copy the data itself, which works fine for serialized data as in fact it is just a byte array
 Uses special cache-efficient sorter UnsafeShuffleExternalSorter that sorts arrays of compressed record pointers and partition ids. By using only 8 bytes of space per record in the sorting array, it works more efficienly with CPU cache
