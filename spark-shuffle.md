@@ -112,31 +112,43 @@ Operate directly on serialized binary data without the need to deserialize it. I
 データをデシリアライズせずにシリアライズされたバイナリデータをそのまま扱う。これはunsafe(sun.misc.Unsafe) memoruy copy関数を直接データをコピーするために使用している。この関数は、シリアライズされたデータ(実際は単なるbyte array)に対して有効に働く。
 
 Uses special cache-efficient sorter UnsafeShuffleExternalSorter that sorts arrays of compressed record pointers and partition ids. By using only 8 bytes of space per record in the sorting array, it works more efficienly with CPU cache
-パーティション idと圧縮されたarrayのレコードのポインタをソートするキャッシュを有効に使う UnsafeShuffleExternalSorterという特殊なsorterを使っている。たった8byteの領域を1レコードあたりにソートされたアレイでつか言うことにより、CPUキャッシュがより効率良く働く。
+パーティション idと圧縮されたarrayのレコードのポインタをソートするキャッシュを有効に使う UnsafeShuffleExternalSorterという特殊なsorterを使っている。たった8byteの領域を1レコードあたりにソートされたアレイでつか言うことにより、CPUキャッシュがより効率良く働きます。
+
 As the records are not deserialized, spilling of the serialized data is performed directly (no deserialize-compare-serialize-spill logic)
+
+レコードはでシリアライスされていないので、メモリからあふれたシリアライズデータは直接処理されます。(deserialize-compare-serialize-spillのロジックは適応されることはありません)
+
     Extra spill-merging optimizations are automatically applied when the shuffle compression codec supports concatenation of serialized streams (i.e. to merge separate spilled outputs just concatenate them). This is currently supported by Spark’s LZF serializer, and only if fast merging is enabled by parameter “shuffle.unsafe.fastMergeEnabled”
-    As a next step of optimization, this algorithm would also introduce off-heap storage buffer.
+
+その他のメモリからあふれたデータのマージに対しての最適化はshuffleの圧縮codecがシリアライズストリームの結合をサポートするときに自動的に適用されます。
+
+最適化の次のステップとして、このアルゴリズムははoff-heapストレージのバッファを導入します。
 
     This shuffle implementation would be used only when all of the following conditions hold:
+このShuffleの実装は、下記の条件が満たされた時のみ実行されます。
 
-    The shuffle dependency specifies no aggregation. Applying aggregation means the need to store deserialized value to be able to aggregate new incoming values to it. This way you lose the main advantage of this shuffle with its operations on serialized data
-    The shuffle serializer supports relocation of serialized values (this is currently supported by KryoSerializer and Spark SQL’s custom serializer)
-    The shuffle produces less than 16777216 output partitions
-    No individual record is larger than 128 MB in serialized form
-    Also you must understand that at the moment sorting with this shuffle is performed only by partition id, it means that the optimization with merging pre-sorted data on “reduce” side and taking advantage of pre-sorted data by TimSort on “reduce” side is no longer possible. Sorting in this operation is performed based on the 8-byte values, each value encodes both link to the serialized data item and the partition number, here is how we get a limitation of 1.6b output partitions.
+- The shuffle dependency specifies no aggregation. Applying aggregation means the need to store deserialized value to be able to aggregate new incoming values to it. This way you lose the main advantage of this shuffle with its operations on serialized data
+ Shuffleの依存関係に集約がない。集約を行うということは、デシリアライズされた値をincoming valueとしてデシリアライズされたデータに集約しないといけない。
+- Shuffleのシリアライザがシリアライズされたバリューの関係性をサポートしていること。（これはKryoSerializertoSpark SQLのカスタムシリアライザでサポートされています。）
+- Shuffleが16777216より少ないパーティションの出力を生成すること
+- すべてのレコードが128MBを超えないシリアライズされたデータであること
 
-    Here’s how it looks like:
+現在のこのShuffleの実装はパーティション idにのみ実行されており、"reduce"側でのソート済みデータをマージする最適化とTimSortによって得られるソート済みのデータをソートするを"reduce"側での最適化は使えなくなっております。この処理のソートでは、それぞれのバリューがシリアライズされたデータをパーティションの番号の両方に紐付いている8byteの値をつかって行われているため、約16億のパーティションしか扱うことができません。
+
+Here’s how it looks like:
 
     spark_tungsten_sort_shuffleFirst for each spill of the data it sorts the described pointer array and outputs an indexed partition file, then it merges these partition files together into a single indexed output file.
 
-    Pros:
+長所:
 
-    Many performance optimizations described above
-    Cons:
+- 上記で述べたようなパフォーマンスへの最適化がされている。
 
-    Not yet handling data ordering on mapper side
-    Not yet offer off-heap sorting buffer
-    Not yet stable
-    But in my opinion this sort is a big advancement in the Spark design and I would like to see how this will turn out and what new performance benchmarks Databricks team would offer us to show how cool the performance because with these new features.
+短所:
 
-    This is all what I wanted to say about Spark shuffles. It is a very interesting piece of the code and if you have some time I’d recommend you to read it by yourself.
+- まだmapper側でオーダリングされたデータを扱えない.
+- まだoff heapのソーティングバファを提供していない
+- まだ安定していない。
+
+しかし、個人的な意見として、このソートはSparkのデザインにとってとても大きな成果です。私は、Databricks　チームがこの新しい特徴によって得られたパフォーマンスの素晴らしさを見せるために提供する新しいベンチマークがどうなるか、今後どうなっていくのかが見てみたいです。
+
+これが私のSparkのShuffleについて言いたかったことの全てです。とても興味深いコードでした。もしもあなたが時間があるのなら、自分でコードを読んで見ることをおすすめします。
