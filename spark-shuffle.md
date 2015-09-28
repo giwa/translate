@@ -19,14 +19,14 @@ TungstenのShuffleまでカバーされていて、感動してしまったの�
 
 Shuffle は一般的に2つの重要なパラメータを取ります。 ***spark.shuffle.compress*** shuffleのアウトプットを圧縮するかどうか。 ***spark.shuffle.spill.compress*** Shuffleでメモリからあふれた中間ファイルを圧縮するかどうか。両者ともデフォルトで"true"になっています。 ***spark.io.compression.codec*** を両者とも使っています。データを圧縮するためのcodecはデフォルトでは[snappy](https://en.wikipedia.org/wiki/Snappy_(software))です。
 
-ご存知かも知れませんが、Spark には数種類の Shuffle の実装がされています。 ***spark.shuffle.manager***のパラメータによってそれらのShuffleを使うことができます。使えるShuffleの実装はhash, sort, tungsten-sortです。1.2 からのデフォルトは"sort"になっています。
+ご存知かも知れませんが、Spark には数種類の Shuffle の実装がされています。 ***spark.shuffle.manager***のパラメータによってそれらの Shuffle を使うことができます。使えるShuffleの実装はhash, sort, tungsten-sortです。1.2 からのデフォルトは"sort"になっています。
 
 ## Hash Shuffle
 
 
 Spark 1.2.0より前は、hash がデフォルトでした。しかし、hashは多くの欠点がありました。それらは、[生成されるファイルの多さに起因するものです。](http://www.cs.berkeley.edu/~kubitron/courses/cs262a-F13/projects/reports/project16_report.pdf)それぞれの mapper タスクがそれぞれのreducerのために作る分割ファイルの量は、クラスターのなかの **M * R** だけの数になります。（ **M** は mapper の数、 **R** は reducer の数です。）多くの mapper と reducer は大きな問題を生じます。mapper と reducer の buffer サイズ、ファイルシステムの中でオープンされているファイルの数、それらのファイルを作成、削除する速さの問題などです。[いい例としては Yahoo が実際にこの問題に直面した時の例です。](http://spark-summit.org/2013/wp-content/uploads/2013/10/Li-AEX-Spark-yahoo.pdf)彼らは46kのmapperと46kのreducerを使い20億のファイルをクラスターの中で作成しました。
 
-この Shuffle の仕組みは賢いものではありません。reduce 側でreducer の数をパーティションの数として数え、それらに対して別々のファイルを作成しアウトプットが必要なレコードをループします。target partiitionをそれぞれのreducerのために数え、対応したファイルに結果を書き出します。
+この Shuffle の仕組みは賢いものではありません。reduce 側でreducer の数をパーティションの数として数え、それらに対して別々のファイルを作成しアウトプットが必要なレコードをループします。target partiition　をそれぞれの　reducer　のために数え、対応したファイルに結果を書き出します。
 
 このように動きます。
 ![spark_hash_shuffle_no_consolidation](http://0x0fff.com/wp-content/uploads/2015/08/spark_hash_shuffle_no_consolidation.png)
@@ -39,34 +39,34 @@ Spark 1.2.0より前は、hash がデフォルトでした。しかし、hashは
 
 長所:
 
-- 高速である。ソートは必要ない。ハッシュテーブルを維持する必要が無い
+- 高速である。ソートは必要ない。ハッシュテーブルを維持する必要が無い。
 - ソートするためのメモリオーバーヘッドがない。
-- IOのオーバーヘッドがない。データはHDDに1回だけしかwriteとreadが行われるだけである。
+- IO のオーバーヘッドがない。データは HDD に1回だけしかwriteとreadが行われるだけである。
 
 
 短所:
 
 - パーティションの数が大きくなると、膨大な出力ファイルのせいでパフォーマンスが低下していく。
-- 多くのファイルがファイル・システムに書かれると、IO skewが発生しランダムIOが起こる。ランダムIOは一般的にはシーケンシャルIOの100倍遅いと言われている。参考としてこちらのリンクを挙げます。 
+- 多くのファイルがファイル・システムに書かれると、IO skew が発生しランダムIOが起こる。ランダムIOは一般的にはシーケンシャル IO の100倍遅いと言われている。参考としてこちらのリンクを挙げます。 
 
 IOの遅さの参考にとして　[One Billion Files](http://events.linuxfoundation.org/slides/2010/linuxcon2010_wheeler.pdf)
 
 
-そしてもちろん、データがファイルに書かれるとき、データはシリアライズされ、オプションとして圧縮されるかもしれません。データを読むときは、逆のことが起きます。解凍されデシリアライズされます。この fetch するときに重要なパラメータは、 ***spark.recuder.maxSizeInFlight***（デフォルト: 48MB）それぞれのreducerによってリモートプロセスからアクセスされるデータの量を決定するパラメータです。処理の高速化のために違うエグゼキューターから5個の並列リクエストによってこのサイズが等しく分割されます。もしこのサイズを増加させると、 reducer は "map" タスクからのデータを大きなチャンクでとりにいくでしょう。これはパフォーマンスを増加するかも知れませんが、reducer のプロセスのメモリ使用量を増加させます。
+そしてもちろん、データがファイルに書かれるとき、データはシリアライズされ、オプションとして圧縮されるかもしれません。データを読むときは、逆のことが起きます。解凍されデシリアライズされます。この fetch するときに重要なパラメータは、 ***spark.recuder.maxSizeInFlight***（デフォルト: 48MB）それぞれの reducer によってリモートプロセスからアクセスされるデータの量を決定するパラメータです。処理の高速化のために違うエグゼキューターから5個の並列リクエストによってこのサイズが等しく分割されます。もしこのサイズを増加させると、 reducer は "map" タスクからのデータを大きなチャンクでとりにいくでしょう。これはパフォーマンスを増加するかも知れませんが、reducer のプロセスのメモリ使用量を増加させます。
 
-もしreduce側でリコードの順番が重要でないのなら、"reducer"は"map"の出力に依存したイテレータを返すだけです。しかし、もし順番が重要であれば、"reduce"側でExternalSorterを使いすべてのデータを取得し、ソートします。
+もし　reduce　側でリコードの順番が重要でないのなら、"reducer" は "map" の出力に依存したイテレータを返すだけです。しかし、もし順番が重要であれば、"reduce"側で　ExternalSorter　を使いすべてのデータを取得し、ソートします。
 
 
 ## Sort Shuffle
 
 Starting Spark 1.2.0, this is the default shuffle algorithm used by Spark (spark.shuffle.manager = sort). In general, this is an attempt to implement the shuffle logic similar to the one used by Hadoop MapReduce. With hash shuffle you output one separate file for each of the “reducers”, while with sort shuffle you’re doing a smarted thing: you output a single file ordered by “reducer” id and indexed, this way you can easily fetch the chunk of the data related to “reducer x” by just getting information about the position of related data block in the file and doing a single fseek before fread. But of course for small amount of “reducers” it is obvious that hashing to separate files would work faster than sorting, so the sort shuffle has a “fallback” plan: when the amount of “reducers” is smaller than “spark.shuffle.sort.bypassMergeThreshold” (200 by default) we use the “fallback” plan with hashing the data to separate files and then joining these files together in a single file. This logic is implemented in a separate class BypassMergeSortShuffleWriter.
 
-Spark 1.2.0から Spark の Shuffle のアルゴリズムはsortがデフォルトで使われています。( ***spark.shuffle.manager*** = sort)　一般的には、これは、Hadoop MapReduceで使われているロジックと似たようなShuffleのロジックを実装したものです。Hash shuffleではそれぞれの"reducer"のために別々のファイルを出力しましたが、一方Sort shuffleはもっと賢い方法で行います。"reducer"のidでインデックス化された一つのファイルを出力します。この方法により、"reducer x"に紐付いたデータの塊はファイルの中のデータブロックの位置の情報を得し、そしてfreadの前にfseekを一回だけ行うことにデータを取得することができます。しかしながら、もちろん少ない数の”reducer”ではhashでファイルを分けたほうがsortより速く処理をします。なので、sort shuffleは"reducer"が”spark.shuffle.sort.bypassMergeThreshold”(デフォルトで200)より少なければ、hashをファイル分割するために使いそれらのファイルを一つのファイルにまとめるという"fallback" planを持っています。このロジックはBypassMergeSortShuffleWriterというクラスに分けて実装されています。
+Spark 1.2.0から Spark の Shuffle のアルゴリズムはsortがデフォルトで使われています。( ***spark.shuffle.manager*** = sort)　一般的には、これは、Hadoop MapReduceで使われているロジックと似たようなShuffleのロジックを実装したものです。Hash shuffleではそれぞれの"reducer"のために別々のファイルを出力しましたが、一方 Sort shuffle はもっと賢い方法で行います。"reducer"の id でインデックス化された一つのファイルを出力します。この方法により、"reducer x" に紐付いたデータの塊はファイルの中のデータブロックの位置の情報を得し、そして fread の前に fseek を一回だけ行うことにデータを取得することができます。しかしながら、もちろん少ない数の”reducer”では hash でファイルを分けたほうが sort より速く処理をします。なので、sort shuffleは "reducer" が ***spark.shuffle.sort.bypassMergeThreshold*** (デフォルト: 200)より少なければ、hashをファイル分割するために使いそれらのファイルを一つのファイルにまとめるという"fallback" planを持っています。このロジックはBypassMergeSortShuffleWriterというクラスに分けて実装されています。
 
 
 The funny thing about this implementation is that it sorts the data on the “map” side, but does not merge the results of this sort on “reduce” side – in case the ordering of data is needed it just re-sorts the data. Cloudera has put itself in a fun position with this idea: http://blog.cloudera.com/blog/2015/01/improving-sort-performance-in-apache-spark-its-a-double/. They started a process of implementing the logic that takes advantage of pre-sorted outputs of “mappers” to merge them together on the “reduce” side instead of resorting. As you might know, sorting in Spark on reduce side is done using TimSort, and this is a wonderful sorting algorithm which in fact by itself takes advantage of pre-sorted inputs (by calculating minruns and then merging them together). A bit of math here, you can skip if you’d like to. Complexity of merging M sorted arrays of N elements each is O(MNlogM) when we use the most efficient way to do it, using Min Heap. With TimSort, we make a pass through the data to find MinRuns and then merge them together pair-by-pair. It is obvious that it would identify M MinRuns. First M/2 merges would result in M/2 sorted groups, next M/4 merges would give M/4 sorted groups and so on, so its quite straightforward that the complexity of all these merges would be O(MNlogM) in the very end. Same complexity as the direct merge! The difference here is only in constants, and constants depend on implementation. So the patch by Cloudera engineers has been pending on its approval for already one year, and unlikely it would be approved without the push from Cloudera management, because performance impact of this thing is very minimal or even none, you can see this in JIRA ticket discussion. Maybe they would workaround it by introducing separate shuffle implementation instead of “improving” the main one, we’ll see this soon.
 
-この実装で興味深いのは、"map"側でデータをソートし、"reduce"側では、このソートの結果をマージしないところにあります。もし、データの順番が必要であれば、再びソートしなおします。Clouderaはこの興味深いところに対する意見をここで述べています。http://blog.cloudera.com/blog/2015/01/improving-sort-performance-in-apache-spark-its-a-double/ 彼らは、再びソートする代わりに予めソートしてある"mapper"の出力を"reduce"側でマージするために有効活用するロジックを考え始めました。ご存知かもしれませんが、Sparkのreduce側でのソートはTimSortを使っています。minrunsを計算し、それらをマージしていくことによって予めソートしてある入力に対しては有用性がある素晴らしいソートアルゴリズムです。すこし数学の話です。これは読み飛ばしても構いません。N個の要素のM個のソート済みアレイをマージする複雑さはもっと恋率のいいMin Heapを使った場合O(MNlogM)です。TimSortを使うとMinRunsを探すためにデータをpass throughしてそれらの組同士をマージしていきます。今回の場合は明らかにM MinRunsです。最初のM/2のマージはM/2ソート済みのグループになります。次のM/4のマージはM/4のソート済みのグループになります。その次の場合も同様です。このようにすべてのマージが最終的にO(MNlogM)になるのは簡単に理解できます。ここでの違いは一定さだけです。一定になるかどうかは実装によります。なのでCloudera エンジニアのパッチは1年以上も承認がとれずにいます。しかし、これはCloudera managementからの圧力がなくともマージされるでしょう、この実装パフォーマンスへの影響は、とても少ないかないほどです。JIRAのチケットの議論を見てみるといいでしょう。彼らはshuffleの改善ではなく、別の実装として導入しようと試みるでしょう。
+この実装で興味深いのは、"map" 側でデータをソートし、"reduce" 側では、このソートの結果をマージしないところにあります。もし、データの順番が必要であれば、再びソートしなおします。Cloudera はこの興味深いアイデイアに対する意見をここで述べています。http://blog.cloudera.com/blog/2015/01/improving-sort-performance-in-apache-spark-its-a-double/ 彼らは、再びソートする代わりに予めソートしてある "mapper" の出力を "reduce" 側でマージするために有効活用するロジックを考え始めました。ご存知かもしれませんが、Spark の reduce 側でのソートはTimSort を使っています。 minruns を計算し、それらをマージしていくことによって予めソートしてある入力に対しては有用性がある素晴らしいソートアルゴリズムです。すこし数学の話です。これは読み飛ばしても構いません。N個の要素のM個のソート済みアレイをマージする複雑さはもっと効率のいい Min Heap を使った場合 O(MNlogM) です。TimSort　を使うと　MinRuns　を探すためにデータをpass throughしてそれらの組同士をマージしていきます。今回の場合は明らかに　M MinRuns　です。最初の　M/2　のマージは　M/2　ソート済みのグループになります。次の　M/4　のマージは　M/4　のソート済みのグループになります。その次の場合も同様です。このようにすべてのマージが最終的にO(MNlogM)になるのは簡単に理解できます。ここでの違いは一定さだけです。一定になるかどうかは実装によります。なのでCloudera エンジニアのパッチは1年以上も承認がとれずにいます。しかし、これはCloudera managementからの圧力がなくともマージされるでしょう、この実装パフォーマンスへの影響は、とても少ないか、ないほどです。JIRA　のチケットの議論を見てみるといいでしょう。彼らはshuffleの改善ではなく、別の実装として導入しようと試みることでしょう。
 
 この方法でいいとします。では、"map"全体の出力に対して保存するだけのメモリがなかった場合はどうするのでしょうか？中間ファイルとしてディスクに書き込まないといけなくなるでしょう。spark.shuffle.spillというパラメータによって有効にするかどうかが決まられます。デフォルトではディスクへの書き込みは有効になっています。もしも無効にしてしまった場合、"map"の出力がメモリに書ききれない場合はOOM エラーになる可能性があるので気をつけてください。
 
@@ -74,24 +74,19 @@ The amount of memory that can be used for storing “map” outputs before spill
 
 "map"がデータをディスクに書き込む前に使えるメモリの容量は "JVM Heap Size" * "spark.shuffle.memoryFraction" * "spark.shuffle.safetyFraction"です。デフォルトでは、"JVM Heap Size" * 0.2 * 0.8 = "JVM Heap Size" * 0.16です。同じエグゼキュータの中で多くのスレッドを上げる場合は気をつけてください。（spark.executor.cores / spark.task.cpus の割合が1以上になった場合）それぞれのタスクの"map"の出力を保存するのに必要なメモリの平均は “JVM Heap Size” * spark.shuffle.memoryFraction * spark.shuffle.safetyFraction / spark.executor.cores * spark.task.cpus になるでしょう。2コアでパラメータがでファオルトの値であれば、0.08 * "JVM Heap Size"になるでしょう。
 
-Spark内部では、AppendOnlyMapの構造を"map"の出力をメモリに保存するために使っています。興味深いことにSparkは自前のScala実装のHashテーブルを使用しています。それopen hashingを使っていてquadratic probingを使いキーとバリューを同じアレイに保存しています。hashとしてはMurmurHash3の実装であるGoogle Guava libraryの murmur3_32を使っています。
+Spark　内部では、AppendOnlyMap　の構造を　"map"　の出力をメモリに保存するために使っています。興味深いことに　Spark　は自前の　Scala　実装のHashテーブルを使用しています。それはopen hashing　使用し　quadratic probing　を使いキーとバリューを同じアレイに保存しています。hash　としては　MurmurHash3　の実装である　Google Guava library　の murmur3_32　を使っています。
 
-This hash table allows Spark to apply “combiner” logic in place on this table – each new value added for existing key is getting through “combine” logic with existing value, and the output of “combine” is stored as the new value.
-このhash テーブルはSparkに"combiner"のロジックをhashテーブルで実行することを可能にします。既存のキーに対して新しいバリューが追加されると既存のバリューと合わせてcombineのロジックが適用されます。そして"combine"の出力が新しい値として保存されます。
+この　Hash テーブルは　Spark　に"combiner"のロジックを　hashテーブルで実行することを可能にします。既存のキーに対して新しいバリューが追加されると既存のバリューと合わせて　combine　のロジックが適用されます。そして　"combine"　の出力が新しい値として保存されます。
 
-データがメモリからあふれた時、Hashテーブルは、TimSortをこのAppendOnlyMapに保存されたデータに対して実行する"sorter"を呼びデータをディスクに書き込みます。
+データがメモリからあふれた時、Hash　テーブルは、TimSort　をこのAppendOnlyMap　に保存されたデータに対して実行する　"sorter"　を呼びデータをディスクに書き込みます。
 
-Sorted output is written to the disk when the spilling occurs or when there is no more mapper output, i.e. the data is guaranteed to hit the disk. Whether it will really hit the disk depends on OS settings like file buffer cache, but it is up to OS to decide, Spark just sends it “write” instructions.
-
-データがメモリからあふれた時もしくは、mapperの出力がなくなった時、ソートされた出力はディスクに書き込まれます。たとえば、データがディスクに書き込まれることが保証されている場合です。データが書き込まれるかどうかは、ファイルバッファキャシュのようなOSの設定によります。Sparkは単純にwriteの命令を発行するだけなのでOSによります。
+データがメモリからあふれた時もしくは、mapper　の出力がなくなった時、ソートされた出力はディスクに書き込まれます。たとえば、データがディスクに書き込まれることが保証されている場合です。データが書き込まれるかどうかは、ファイルバッファキャシュのようなOSの設定によります。Spark　は単純に　write　の命令を発行するだけなのでOSによります。
 
 
-Each spill file is written to the disk separately, their merging is performed only when the data is requested by “reducer” and the merging is real-time, i.e. it does not call somewhat “on-disk merger” like it happens in Hadoop MapReduce, it just dynamically collects the data from a number of separate spill files and merges them together using Min Heap implemented by Java PriorityQueue class.
-
-あふれたファイルはディスクに分けてそれぞれ書きだされます。このファイルのマージは"reducer"がデータを要求した時にリアルタイにマージされていきます。たとえば、Hadoop MapReduceで行われている"on-disk merger"を呼ぶわけではなく、分割されたメモリからあふれたファイルを動的にあつめ、Java PriorityQueue classで実装されているMin Heapを使いそれらをマージしていきます。
+メモリからあふれたファイルはディスクに分けてそれぞれ書きだされます。このファイルのマージは"reducer"がデータを要求した時にリアルタイにマージされていきます。たとえば、Hadoop MapReduceで行われている"on-disk merger"を呼ぶわけではなく、分割されたメモリからあふれたファイルを動的にあつめ、Java PriorityQueue classで実装されているMin Heapを使い、それらをマージしていきます。
 
 
-This is how it works:
+このように動きます。
 
 ![spark_sort_shuffle](http://0x0fff.com/wp-content/uploads/2015/08/spark_sort_shuffle-1024x459.png)
 
@@ -104,50 +99,41 @@ random IOが少なくなりシーケンシャルなreadとwriteを使う。
 
 短所:
 
-- Sortはhashよりも低速である。一般的には、デフォルトの設定で十分であるが、bypassMergeThresholdのパラメータをあなたのクラスタのsweet spotを見つけるのにはチューニングする価値があるかもしれない。
+- Sort は Hash よりも低速である。一般的には、デフォルトの設定で十分であるが、bypassMergeThreshold のパラメータをあなたのクラスタの sweet spot を見つけるのにはチューニングする価値があるかもしれない。
 
 - SSD ドライブをSparkShuffleのテンポラリデータのストレージにつかっているならhash shuffleのほうが良い性能がでるかもしれない。
 
-Unsafe Shuffle or Tungsten Sort
+## Unsafe Shuffle or Tungsten Sort
 
 TODO: insert link
 Sparkの1.4.0以上では、spark.suffle.manager = tungsten-sortが有効にされているかもれない。このコードは"Tungsten" プロジェクトからポートされたものである。このアイディアはここで説明されている。それはとても興味深いものです。この最適化されたShuffleの実装の特徴は下記のとおりです。
 
+データをデシリアライズせずにシリアライズされたバイナリデータをそのまま扱います。これはunsafe(sun.misc.Unsafe) memoruy copy関数を直接データをコピーするために使用しています。この関数は、シリアライズされたデータ(実際は単なるbyte array)に対して有効に働きます。
 
-Operate directly on serialized binary data without the need to deserialize it. It uses unsafe (sun.misc.Unsafe) memory copy functions to directly copy the data itself, which works fine for serialized data as in fact it is just a byte array
-データをデシリアライズせずにシリアライズされたバイナリデータをそのまま扱う。これはunsafe(sun.misc.Unsafe) memoruy copy関数を直接データをコピーするために使用している。この関数は、シリアライズされたデータ(実際は単なるbyte array)に対して有効に働く。
+？？？
+パーティション idと圧縮されたarrayのレコードのポインタをソートするキャッシュを有効に使う UnsafeShuffleExternalSorterという特殊なsorterを使っている。たった8byteの領域を1レコードあたりにソートされたアレイで使用することにより、CPUキャッシュがより効率良く働く。
 
-Uses special cache-efficient sorter UnsafeShuffleExternalSorter that sorts arrays of compressed record pointers and partition ids. By using only 8 bytes of space per record in the sorting array, it works more efficienly with CPU cache
-パーティション idと圧縮されたarrayのレコードのポインタをソートするキャッシュを有効に使う UnsafeShuffleExternalSorterという特殊なsorterを使っている。たった8byteの領域を1レコードあたりにソートされたアレイでつか言うことにより、CPUキャッシュがより効率良く働きます。
+レコードはデシリアライスされていないので、メモリからあふれたシリアライズデータは直接処理されます。(deserialize-compare-serialize-spillのロジックは適応されることはありません)
 
-As the records are not deserialized, spilling of the serialized data is performed directly (no deserialize-compare-serialize-spill logic)
-
-レコードはでシリアライスされていないので、メモリからあふれたシリアライズデータは直接処理されます。(deserialize-compare-serialize-spillのロジックは適応されることはありません)
-
-    Extra spill-merging optimizations are automatically applied when the shuffle compression codec supports concatenation of serialized streams (i.e. to merge separate spilled outputs just concatenate them). This is currently supported by Spark’s LZF serializer, and only if fast merging is enabled by parameter “shuffle.unsafe.fastMergeEnabled”
+Extra spill-merging optimizations are automatically applied when the shuffle compression codec supports concatenation of serialized streams (i.e. to merge separate spilled outputs just concatenate them). This is currently supported by Spark’s LZF serializer, and only if fast merging is enabled by parameter “shuffle.unsafe.fastMergeEnabled”
 
 その他のメモリからあふれたデータのマージに対しての最適化はshuffleの圧縮codecがシリアライズストリームの結合をサポートするときに自動的に適用されます。
 
-最適化の次のステップとして、このアルゴリズムははoff-heapストレージのバッファを導入します。
+最適化の次のステップとして、このアルゴリズムはは off-heap ストレージのバッファを導入します。
 
-    This shuffle implementation would be used only when all of the following conditions hold:
 このShuffleの実装は、下記の条件が満たされた時のみ実行されます。
 
-- The shuffle dependency specifies no aggregation. Applying aggregation means the need to store deserialized value to be able to aggregate new incoming values to it. This way you lose the main advantage of this shuffle with its operations on serialized data
- Shuffleの依存関係に集約がない。集約を行うということは、デシリアライズされた値をincoming valueとしてデシリアライズされたデータに集約しないといけない。
-- Shuffleのシリアライザがシリアライズされたバリューの関係性をサポートしていること。（これはKryoSerializertoSpark SQLのカスタムシリアライザでサポートされています。）
-- Shuffleが16777216より少ないパーティションの出力を生成すること
-- すべてのレコードが128MBを超えないシリアライズされたデータであること
+- Shuffle の依存関係に集約がない。集約を行うということは、デシリアライズされた値を新しく入ってきたデータとしてデシリアライズされたデータに集約しないといけない。この方法ではシリアライズデータに対するその命令はこの Shuffle の主な優位性を失う。
+- Shuffleのシリアライザがシリアライズされたバリューの関係性をサポートしていること。（これは KryoSerializertoSpark SQL のカスタムシリアライザでサポートされています。）
+- Shuffle が16777216より少ないパーティションの出力を生成すること
+- すべてのレコードが 128MB を超えないシリアライズされたデータであること
 
-現在のこのShuffleの実装はパーティション idにのみ実行されており、"reduce"側でのソート済みデータをマージする最適化とTimSortによって得られるソート済みのデータをソートするを"reduce"側での最適化は使えなくなっております。この処理のソートでは、それぞれのバリューがシリアライズされたデータをパーティションの番号の両方に紐付いている8byteの値をつかって行われているため、約16億のパーティションしか扱うことができません。
+現在のこの Shuffle の実装はパーティション idにのみ実行されており、"reduce"側でのソート済みデータをマージする最適化と TimSort によって得られるソート済みのデータをソートするを"reduce"側での最適化は使えなくなっております。この処理のソートでは、それぞれのバリューがシリアライズされたデータをパーティションの番号の両方に紐付いている8byteの値をつかって行われているため、約16億のパーティションしか扱うことができません。
 
-Here’s how it looks like:
-
-
+このように動きます。
 ![spark_tungsten_sort](http://0x0fff.com/wp-content/uploads/2015/08/spark_tungsten_sort_shuffle.png)
 
-
-First for each spill of the data it sorts the described pointer array and outputs an indexed partition file, then it merges these partition files together into a single indexed output file.
+最初にメモリからあふれたデータそれぞれに対してアレイのポインタをソートし、インデックスしたパーティションファイルを出力します。そしてそれらのパーティションファイルは一つのインデックス化された出力ファイルへとマージされます。
 
 長所:
 
@@ -155,8 +141,8 @@ First for each spill of the data it sorts the described pointer array and output
 
 短所:
 
-- まだmapper側でオーダリングされたデータを扱えない.
-- まだoff heapのソーティングバファを提供していない
+- まだ mapper 側でオーダリングされたデータを扱えない.
+- まだ off heap のソーティングバファを提供していない
 - まだ安定していない。
 
 しかし、個人的な意見として、このソートはSparkのデザインにとってとても大きな成果です。私は、Databricks　チームがこの新しい特徴によって得られたパフォーマンスの素晴らしさを見せるために提供する新しいベンチマークがどうなるか、今後どうなっていくのかが見てみたいです。
