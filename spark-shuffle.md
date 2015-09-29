@@ -108,10 +108,8 @@ Sparkの1.4.0以上では、 ***spark.suffle.manager*** = tungsten-sortが有効
 
 3.レコードはデシリアライスされていないので、メモリからあふれたシリアライズデータは直接処理されます。(deserialize-compare-serialize-spillのロジックは適応されることはありません)
 
-Extra spill-merging optimizations are automatically applied when the shuffle compression codec supports concatenation of serialized streams (i.e. to merge separate spilled outputs just concatenate them). This is currently supported by Spark’s LZF serializer, and only if fast merging is enabled by parameter 
-
 4.その他のメモリからあふれたデータのマージに対しての最適化はshuffleの圧縮codecがシリアライズストリームの結合をサポートするときに自動的に適用されます。(たとえば、メモリからあふれた出力をマージするのにただ結合させるだけ)　この機能は、 SparkのLZF serializer だけでしかサポートされていなく、そして fast mergeが ***shuffle.unsafe.fastMergeEnabled***　パラメータにより有効にされた時に使用されます。
- 
+
 最適化の次のステップとして、このアルゴリズムはは [off-heap ストレージのバッファ](https://issues.apache.org/jira/browse/SPARK-7542)を導入します。
 
 このShuffleの実装は、下記の条件が満たされた時のみ実行されます。
